@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pycheck-tool"
+version = "0.1.1"
+description = "A simple, dynamic sanity-check library for Python distributions."
+readme = "README.md"
+authors = [ { name = "Aubrey" } ]
+license = "MIT"
+requires-python = ">=3.9"
+dependencies = []
+classifiers = [
+	"Development Status :: 3 - Alpha",
+	"Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Topic :: Software Development :: Build Tools",
+	"Topic :: Software Development :: Debuggers",
+	"Topic :: System :: Systems Administration",
+	"Programming Language :: Python",
+	"Programming Language :: Python :: 3",
+	"Programming Language :: Python :: 3.9",
+	"Programming Language :: Python :: 3.10",
+	"Programming Language :: Python :: 3.11",
+	"Programming Language :: Python :: 3.12",
+	"Programming Language :: Python :: 3.13",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=6.0"]
+
+[project.scripts]
+"pycheck-tool" = "pycheck_tool:main"
+pycheck = "pycheck_tool:main"
+do_check = "pycheck_tool:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = ["pycheck_tool"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-q"
