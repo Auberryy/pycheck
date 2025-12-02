@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from pytest import CaptureFixture, MonkeyPatch
@@ -31,7 +32,7 @@ def test_cli_main_runs_os_and_all(monkeypatch: MonkeyPatch):
 
 def test_version_exists():
     """Simple smoke test to make sure import works."""
-    assert pycheck.__version__ == "0.1.1"
+    assert pycheck.__version__ == "0.1.2"
 
 
 def test_json_flag_help(capsys: CaptureFixture[str]):
@@ -56,3 +57,42 @@ def test_json_report_sanitizes_info(capsys: CaptureFixture[str]):
     username = os.environ.get("USERNAME") or os.environ.get("USER") or Path.home().name
     if username:
         assert username not in output
+
+
+def test_ssl_failure_detection():
+    """Simulate missing ssl module and ensure failure is reported."""
+    with patch.dict("sys.modules", {"ssl": None}):
+        result = pycheck.check_ssl_support()
+    assert result["status"] == "fail"
+
+def test_filesystem_integrity_failure():
+    """Simulate a 'bit flip' where read data != written data (Should WARN)."""
+    # Mock the temp directory context manager
+    with patch("pycheck_tool.tempfile.TemporaryDirectory") as mock_tmp:
+        mock_tmp.return_value.__enter__.return_value = "/fake/tmp"
+        
+        # Mock Path so we don't touch real disk
+        with patch("pycheck_tool.Path") as mock_path_cls:
+            mock_file = mock_path_cls.return_value.__truediv__.return_value
+            
+            # SCENARIO: We write correct data, but read back garbage
+            mock_file.read_text.return_value = "CORRUPTED_DATA"
+            
+            result = pycheck.check_filesystem_access()
+            
+    # Verification
+    assert result["status"] == "warn"
+    assert "Filesystem issue" in result["detail"]
+    # Ensure it caught the ValueError specifically
+    assert "match" in result["detail"] or "integrity" in result["detail"]
+
+def test_filesystem_permission_failure():
+    """Simulate a permission error on the temp folder (Should FAIL)."""
+    with patch("pycheck_tool.tempfile.TemporaryDirectory") as mock_tmp:
+        # distinct from OSError, this should be caught as FAIL
+        mock_tmp.side_effect = PermissionError("Access is denied")
+        
+        result = pycheck.check_filesystem_access()
+
+    assert result["status"] == "fail"
+    assert "Permission denied" in result["detail"]

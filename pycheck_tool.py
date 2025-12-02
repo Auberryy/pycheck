@@ -1,4 +1,6 @@
 """pycheck-tool
+This is the One-Package-File from pycheck. You can use this file directly for your own internal projects!
+
 
 A simple, dynamic sanity-check helper for Python distributions.
 
@@ -19,63 +21,14 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
-import os
 import platform
-import re
 import sys
 import tempfile
-from functools import lru_cache
 from importlib.metadata import distributions
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Pattern, Union
+from typing import Any, Dict, List, Union
 
-
-# ---------------------------------------------------------------------------
-# Inline sanitization helpers (so this file stays zero-dependency standalone)
-# ---------------------------------------------------------------------------
-
-@lru_cache(maxsize=1)
-def _get_username_pattern() -> Optional[Pattern[str]]:
-    """Return a compiled regex pattern for the current username, cached."""
-    try:
-        username = os.environ.get("USERNAME") or os.environ.get("USER")
-        if not username:
-            username = Path.home().name
-        if username and len(username) > 2:
-            return re.compile(re.escape(username), re.IGNORECASE)
-    except Exception:
-        pass
-    return None
-
-
-def _sanitize_path(path_str: str) -> str:
-    """Replace the user's home directory with '~' to avoid leaking PII."""
-    try:
-        home = os.path.expanduser("~")
-        if home and path_str.startswith(home):
-            return path_str.replace(home, "~", 1)
-    except Exception:
-        pass
-    return path_str
-
-
-def _sanitize_string(text: str) -> str:
-    """Mask occurrences of the current username inside arbitrary text."""
-    pattern = _get_username_pattern()
-    if pattern:
-        return pattern.sub("<user>", text)
-    return text
-
-
-def sanitize_value(value: Any) -> Any:
-    """Sanitize arbitrary values (strings, dicts, lists)."""
-    if isinstance(value, str):
-        return _sanitize_string(_sanitize_path(value))
-    if isinstance(value, dict):
-        return {k: sanitize_value(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [sanitize_value(item) for item in value]
-    return value
+from utils import sanitize_value
 
 __all__ = [
     "doSanityCheck",
@@ -102,7 +55,7 @@ def _try_import(module_name: str) -> bool:
     try:
         importlib.import_module(module_name)
         return True
-    except (ImportError, AttributeError, ModuleNotFoundError):
+    except Exception:
         return False
 
 
@@ -238,13 +191,13 @@ def check_filesystem_access() -> Dict[str, Any]:
             probe.write_text("pycheck_tool", encoding="utf-8")
             data = probe.read_text(encoding="utf-8")
             if data != "pycheck_tool":
-                raise ValueError("Read data did not match written data.")
+                raise OSError("Failed to verify written bytes.")
     except PermissionError:
         result["status"] = "fail"
-        result["detail"] = "Permission denied: Cannot write to system temp directory."
-    except (OSError, ValueError) as e:
+        result["detail"] = "Permission denied while accessing temporary storage."
+    except OSError:
         result["status"] = "warn"
-        result["detail"] = f"Filesystem issue: {e}"
+        result["detail"] = "Unexpected filesystem issue detected during probe."
     return result
 
 
@@ -257,13 +210,11 @@ def check_ssl_support() -> Dict[str, Any]:
     }
     try:
         import ssl
+
         ssl.create_default_context()
-    except (ImportError, AttributeError) as exc:
+    except Exception as exc:
         result["status"] = "fail"
         result["detail"] = f"SSL unavailable: {exc.__class__.__name__}"
-    except Exception as exc:
-        result["status"] = "warn"
-        result["detail"] = f"SSL issue: {exc.__class__.__name__}: {exc}"
     return result
 
 

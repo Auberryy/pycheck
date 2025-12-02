@@ -26,7 +26,7 @@ def _try_import(module_name: str) -> bool:
     try:
         importlib.import_module(module_name)
         return True
-    except Exception:
+    except (ImportError, AttributeError, ModuleNotFoundError):
         return False
 
 
@@ -152,28 +152,56 @@ def doSanityCheck(mode: str) -> Union[bool, str]:
 
 
 def check_filesystem_access() -> Dict[str, Any]:
-    """Verify the interpreter can create, write, and read a temp file.
-
-    Returns a small dict describing the outcome so the CLI can present the
-    result in human-readable and JSON forms while avoiding crashes on
-    hardened, read-only environments.
-    """
+    """Verify the interpreter can create, write, and read a temp file."""
     result: Dict[str, Any] = {
         "capability": "filesystem_access",
         "status": "ok",
         "detail": "Temporary directory write/read succeeded.",
     }
+    
     try:
+        # Use the context manager to ensure cleanup happens even if we crash
         with tempfile.TemporaryDirectory() as tmpdir:
             probe = Path(tmpdir) / "pycheck_probe.txt"
+            
+            # Test Write
             probe.write_text("pycheck", encoding="utf-8")
+            
+            # Test Read
             data = probe.read_text(encoding="utf-8")
+            
+            # Test Integrity
             if data != "pycheck":
-                raise OSError("Failed to verify written bytes.")
+                # We raise a custom error to differentiate from system I/O errors
+                raise ValueError("Read data did not match written data.")
+                
     except PermissionError:
         result["status"] = "fail"
-        result["detail"] = "Permission denied while accessing temporary storage."
-    except OSError:
+        result["detail"] = "Permission denied: Cannot write to system temp directory."
+        
+    except (OSError, ValueError) as e:
+        # Catch both System I/O errors AND our integrity check
         result["status"] = "warn"
-        result["detail"] = "Unexpected filesystem issue detected during probe."
+        # Now the JSON will actually say "Read data did not match..." or "No space left on device"
+        result["detail"] = f"Filesystem issue: {str(e)}"
+        
+    return result
+
+
+def check_ssl_support() -> Dict[str, Any]:
+    """Ensure the ssl module is importable and can create a default context."""
+    result: Dict[str, Any] = {
+        "capability": "ssl",
+        "status": "ok",
+        "detail": "SSL module and default context available.",
+    }
+    try:
+        import ssl
+        ssl.create_default_context()
+    except (ImportError, AttributeError) as exc:
+        result["status"] = "fail"
+        result["detail"] = f"SSL unavailable: {exc.__class__.__name__}"
+    except Exception as exc:
+        result["status"] = "warn"
+        result["detail"] = f"SSL issue: {exc.__class__.__name__}: {exc}"
     return result

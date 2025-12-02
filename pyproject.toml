@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pycheck-tool"
-version = "0.1.1"
+version = "0.1.2"
 description = "A simple, dynamic sanity-check library for Python distributions."
 readme = "README.md"
 authors = [ { name = "Aubrey" } ]
@@ -37,7 +37,7 @@ do_check = "pycheck_tool:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-py-modules = ["pycheck_tool"]
+py-modules = ["pycheck_tool", "utils"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"

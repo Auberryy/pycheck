@@ -12,10 +12,12 @@ if __package__ in {None, ""}:
     # Support running as `python src/pycheck/cli.py` by fixing sys.path.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from pycheck import __version__  # type: ignore
-    from pycheck.checker import doSanityCheck, OS, ALL, check_filesystem_access  # type: ignore
+    from pycheck.checker import doSanityCheck, OS, ALL, check_filesystem_access, check_ssl_support  # type: ignore
+    from utils import sanitize_value  # type: ignore
 else:
     from . import __version__
-    from .checker import doSanityCheck, OS, ALL, check_filesystem_access
+    from .checker import doSanityCheck, OS, ALL, check_filesystem_access, check_ssl_support
+    from .utils import sanitize_value
 
 
 def _print_result(label: str, result: object) -> None:
@@ -124,10 +126,25 @@ def main(argv: list[str] | None = None) -> int:
     if capability.get("status") == "fail":
         exit_code = 1
 
+    ssl_capability = check_ssl_support()
+    entries.append(
+        {
+            "name": ssl_capability.get("capability", "ssl"),
+            "type": "capability",
+            "status": ssl_capability.get("status", "unknown"),
+            "detail": ssl_capability.get("detail"),
+        }
+    )
+    if ssl_capability.get("status") == "fail":
+        exit_code = 1
+
     if args.json:
-        print_json_report(entries, exit_code)
+        # Sanitize all entries to remove PII before printing
+        sanitized_entries = [sanitize_value(e) for e in entries]
+        print_json_report(sanitized_entries, exit_code)
     else:
         _print_capability(capability)
+        _print_capability(ssl_capability)
 
     return exit_code
 
