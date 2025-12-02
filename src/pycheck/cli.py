@@ -5,19 +5,11 @@ import argparse
 import json
 import platform
 import sys
-from pathlib import Path
 from typing import List, Dict, Any
 
-if __package__ in {None, ""}:
-    # Support running as `python src/pycheck/cli.py` by fixing sys.path.
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from pycheck import __version__  # type: ignore
-    from pycheck.checker import doSanityCheck, OS, ALL, check_filesystem_access, check_ssl_support  # type: ignore
-    from utils import sanitize_value  # type: ignore
-else:
-    from . import __version__
-    from .checker import doSanityCheck, OS, ALL, check_filesystem_access, check_ssl_support
-    from .utils import sanitize_value
+from . import __version__
+from .checker import doSanityCheck, OS, ALL, check_filesystem_access, check_ssl_support
+from .utils import sanitize_value
 
 
 def _print_result(label: str, result: object) -> None:

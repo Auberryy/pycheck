@@ -8,16 +8,16 @@ version = "0.1.2"
 description = "A simple, dynamic sanity-check library for Python distributions."
 readme = "README.md"
 authors = [ { name = "Aubrey" } ]
-license = "MIT"
+license = { text = "MIT" }
 requires-python = ">=3.9"
 dependencies = []
 classifiers = [
-	"Development Status :: 3 - Alpha",
-	"Intended Audience :: Developers",
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",
     "Topic :: Software Development :: Build Tools",
-	"Topic :: Software Development :: Debuggers",
-	"Topic :: System :: Systems Administration",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: System :: Systems Administration",
 	"Programming Language :: Python",
 	"Programming Language :: Python :: 3",
 	"Programming Language :: Python :: 3.9",
@@ -31,13 +31,14 @@ classifiers = [
 dev = ["pytest>=6.0"]
 
 [project.scripts]
-"pycheck-tool" = "pycheck_tool:main"
-pycheck = "pycheck_tool:main"
-do_check = "pycheck_tool:main"
+# These point to the FOLDER (pycheck) -> FILE (cli) -> FUNCTION (main)
+pycheck = "pycheck.cli:main"
+do_check = "pycheck.cli:main"
+"pycheck-tool" = "pycheck.cli:main"
 
-[tool.setuptools]
-package-dir = {"" = "src"}
-py-modules = ["pycheck_tool", "utils"]
+# Use 'find' to automatically grab the 'pycheck' folder inside 'src'
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"

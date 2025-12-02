@@ -23,6 +23,9 @@ SPECIFIC = "SPECIFIC"  # Check specific packages
 
 def _try_import(module_name: str) -> bool:
     """Attempt to import a module by name. Returns True on success."""
+    # Skip invalid module names (relative paths, empty, etc.)
+    if not module_name or module_name.startswith('.') or module_name.startswith('-'):
+        return False
     try:
         importlib.import_module(module_name)
         return True
