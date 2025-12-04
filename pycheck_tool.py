@@ -33,13 +33,19 @@ import platform
 import re
 import sys
 import tempfile
+import warnings
 from functools import lru_cache
 from importlib.metadata import distributions
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Pattern, Union
 
+# Suppress deprecation warnings from Python internals that leak file paths with usernames
+warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"importlib.*")
+warnings.filterwarnings("ignore", message=r"module 'sre_.*' is deprecated")
+
 __all__ = [
     "doSanityCheck",
+    "get_failed_imports",
     "OS",
     "ALL",
     "SPECIFIC",
@@ -50,7 +56,7 @@ __all__ = [
 
 __author__ = "Aubrey"
 __license__ = "MIT"
-__version__ = "0.1.2.post1"
+__version__ = "0.1.4"
 
 # ---------------------------------------------------------------------------
 # Constants for check modes
@@ -111,14 +117,21 @@ def sanitize_value(value: Any) -> Any:
 # Core check logic
 # ---------------------------------------------------------------------------
 def _try_import(module_name: str) -> bool:
-    """Attempt to import a module by name. Returns True on success."""
+    """Attempt to import a module by name. Returns True on success.
+    
+    Catches all exceptions to be resilient against corrupted packages,
+    except KeyboardInterrupt and SystemExit which are re-raised.
+    """
     # Skip invalid module names (relative paths, empty, etc.)
     if not module_name or module_name.startswith('.') or module_name.startswith('-'):
         return False
     try:
         importlib.import_module(module_name)
         return True
-    except (ImportError, AttributeError, ModuleNotFoundError):
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception:
+        # Catch everything else - packages can raise any exception
         return False
 
 
@@ -164,9 +177,17 @@ def _get_stdlib_modules() -> list[str]:
 
 
 def _get_all_installed_packages() -> list[str]:
-    """Return a list of top-level package names installed in the current env."""
+    """Return a list of top-level package names installed in the current env.
+    
+    Resilient against corrupted distribution metadata.
+    """
     seen: set[str] = set()
-    for dist in distributions():
+    try:
+        dist_iter = distributions()
+    except Exception:
+        return []
+    
+    for dist in dist_iter:
         try:
             top_level = dist.read_text("top_level.txt")
             if top_level:
@@ -178,24 +199,61 @@ def _get_all_installed_packages() -> list[str]:
         except Exception:
             pass
 
-        if dist.files:
-            for f in dist.files:
-                parts = str(f).replace("\\", "/").split("/")
-                if parts:
-                    first = parts[0]
-                    if first.endswith(".py"):
-                        name = first[:-3]
-                    else:
-                        name = first
-                    if name and not name.startswith("_"):
-                        seen.add(name)
+        # Try to get files - may fail with corrupted distributions
+        try:
+            files = dist.files
+        except Exception:
+            files = None
+        
+        if files:
+            for f in files:
+                try:
+                    parts = str(f).replace("\\", "/").split("/")
+                    if parts:
+                        first = parts[0]
+                        if first.endswith(".py"):
+                            name = first[:-3]
+                        else:
+                            name = first
+                        if name and not name.startswith("_"):
+                            seen.add(name)
+                except Exception:
+                    continue
 
-        dist_name = dist.metadata.get("Name", "")
+        # Try to get metadata - may fail with corrupted distributions
+        try:
+            dist_name = dist.metadata.get("Name", "")
+        except Exception:
+            dist_name = ""
+        
         if dist_name:
             norm = dist_name.replace("-", "_").lower()
             seen.add(norm)
 
     return sorted(seen)
+
+
+def get_failed_imports(mode: str) -> list[str]:
+    """Return a list of module names that failed to import.
+    
+    Args:
+        mode: Either OS (stdlib modules) or ALL (all installed packages).
+    
+    Returns:
+        A list of module names that could not be imported.
+    """
+    if mode == OS:
+        modules = _get_stdlib_modules()
+    elif mode == ALL:
+        modules = _get_all_installed_packages()
+    else:
+        raise ValueError(f"Unknown mode: {mode!r}. Use OS or ALL.")
+    
+    failed = []
+    for mod in modules:
+        if not _try_import(mod):
+            failed.append(mod)
+    return failed
 
 
 def doSanityCheck(mode: str) -> Union[bool, str]:
@@ -338,6 +396,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Emit a JSON report instead of human-readable text.",
     )
     parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Show which modules failed to import.",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        metavar="N",
+        help="Max number of failed modules to show (default: 20).",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
@@ -356,10 +426,17 @@ def main(argv: list[str] | None = None) -> int:
     entries: List[Dict[str, Any]] = []
 
     for mode in modes:
-        result = doSanityCheck(mode)
+        try:
+            result = doSanityCheck(mode)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception:
+            result = False
+        
         label = "OS" if mode == OS else "ALL"
         if not args.json:
             _print_result(label, result)
+        
         entry: Dict[str, Any] = {
             "name": label,
             "type": "check",
@@ -367,6 +444,29 @@ def main(argv: list[str] | None = None) -> int:
         }
         if isinstance(result, str):
             entry["detail"] = {"libraries_passed": result}
+        
+        # Handle --debug output or auto-show OS failures
+        failed_list: list[str] = []
+        if not result or args.debug:
+            try:
+                failed_list = get_failed_imports(mode)
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except Exception:
+                failed_list = []
+        
+        if failed_list:
+            entry["failed_imports"] = failed_list
+            # Show failures for --debug or automatically for OS mode failures
+            if not args.json and (args.debug or (mode == OS and not result)):
+                limit = args.limit
+                shown = failed_list[:limit]
+                print(f"  Failed imports ({len(failed_list)} total):")
+                for mod in shown:
+                    print(f"    - {mod}")
+                if len(failed_list) > limit:
+                    print(f"    ... and {len(failed_list) - limit} more (use --limit to show more)")
+        
         entries.append(entry)
         if not result:
             exit_code = 1
