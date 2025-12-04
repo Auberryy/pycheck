@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pycheck-tool"
-version = "0.1.2"
+version = "0.1.4"
 description = "A simple, dynamic sanity-check library for Python distributions."
 readme = "README.md"
 authors = [ { name = "Aubrey" } ]
-license = { text = "MIT" }
+license = "MIT"
 requires-python = ">=3.9"
 dependencies = []
 classifiers = [
@@ -43,3 +43,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 minversion = "6.0"
 addopts = "-q"
+filterwarnings = [
+    "ignore::DeprecationWarning:importlib.*:",
+    "ignore:module 'sre_:DeprecationWarning",
+]

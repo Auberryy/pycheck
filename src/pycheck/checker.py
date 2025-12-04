@@ -9,9 +9,19 @@ from __future__ import annotations
 import importlib
 import sys
 import tempfile
+import warnings
 from pathlib import Path
 from importlib.metadata import distributions
 from typing import Union, Dict, Any
+
+# ---------------------------------------------------------------------------
+# Suppress deprecation warnings from Python internals
+# ---------------------------------------------------------------------------
+# These warnings (e.g., "module 'sre_compile' is deprecated" in Python 3.13)
+# leak file paths containing usernames to stderr. Since pycheck imports many
+# modules dynamically, we suppress these to protect user privacy.
+warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"importlib.*")
+warnings.filterwarnings("ignore", message=r"module 'sre_.*' is deprecated")
 
 # ---------------------------------------------------------------------------
 # Constants for check modes
@@ -21,15 +31,46 @@ ALL = "ALL"    # Check all installed packages (resource-heavy)
 SPECIFIC = "SPECIFIC"  # Check specific packages
 
 
+def _is_valid_module_name(name: str) -> bool:
+    """Quick validation for candidate import names to avoid raising "relative import" errors.
+
+    We only allow names that look like importable module/package names (no leading dots,
+    no whitespace, and no path separators). This keeps `importlib.import_module` from
+    being asked to resolve relative imports or paths which will raise a TypeError.
+    """
+    if not name:
+        return False
+    if name.startswith(('.', '/')):
+        return False
+    if any(c.isspace() for c in name):
+        return False
+    if '\\' in name or '/' in name:
+        return False
+    return True
+
+
 def _try_import(module_name: str) -> bool:
-    """Attempt to import a module by name. Returns True on success."""
-    # Skip invalid module names (relative paths, empty, etc.)
-    if not module_name or module_name.startswith('.') or module_name.startswith('-'):
+    """Attempt to import a module by name. Returns True on success.
+
+    This function is intentionally robust: any exception raised while importing
+    will cause the function to return False rather than propagate up. Importing
+    third-party packages can execute arbitrary code (including raising
+    SystemExit), so we treat any failure as a non-importable package rather
+    than failing the whole tool.
+    """
+    if not _is_valid_module_name(module_name):
         return False
     try:
         importlib.import_module(module_name)
         return True
-    except (ImportError, AttributeError, ModuleNotFoundError):
+    except Exception as e:
+        # If the import raised a KeyboardInterrupt or SystemExit, re-raise them; these
+        # are not import errors and should be propagated to allow the user to ctrl-c
+        # or terminate the program normally.
+        if isinstance(e, (KeyboardInterrupt, SystemExit)):
+            raise
+        # We explicitly catch Exception here — this prevents a single broken
+        # installed package from causing the entire sanity check to crash.
         return False
 
 
@@ -86,39 +127,66 @@ def _get_all_installed_packages() -> list[str]:
 
     Uses importlib.metadata to discover every installed distribution and
     extracts their importable top-level names.
+    
+    This function is designed to be robust against corrupted environments,
+    including corrupted sys.modules entries for csv, importlib, etc.
     """
     seen: set[str] = set()
-    for dist in distributions():
-        # Try reading top_level.txt if available
+    
+    # Wrap the entire distributions() call in case it fails
+    try:
+        dist_iter = distributions()
+    except Exception:
+        # If we can't even get the distributions iterator, return empty
+        return []
+    
+    for dist in dist_iter:
+        # Wrap each distribution's processing - a single broken dist shouldn't
+        # crash the entire enumeration
         try:
-            top_level = dist.read_text("top_level.txt")
-            if top_level:
-                for line in top_level.strip().splitlines():
-                    name = line.strip()
-                    if name and not name.startswith("_"):
-                        seen.add(name)
-                continue
+            # Try reading top_level.txt if available
+            try:
+                top_level = dist.read_text("top_level.txt")
+                if top_level:
+                    for line in top_level.strip().splitlines():
+                        name = line.strip()
+                        if name and not name.startswith("_"):
+                            seen.add(name)
+                    continue
+            except Exception:
+                pass
+
+            # Fallback: infer from dist files
+            # Wrap in try/except because dist.files can crash if csv module is corrupted
+            try:
+                files = dist.files
+                if files:
+                    for f in files:
+                        parts = str(f).replace("\\", "/").split("/")
+                        if parts:
+                            first = parts[0]
+                            if first.endswith(".py"):
+                                name = first[:-3]
+                            else:
+                                name = first
+                            if name and not name.startswith("_"):
+                                seen.add(name)
+            except Exception:
+                pass
+
+            # Also add normalized distribution name
+            # Wrap because dist.metadata can crash in corrupted environments
+            try:
+                dist_name = dist.metadata.get("Name", "")
+                if dist_name:
+                    norm = dist_name.replace("-", "_").lower()
+                    seen.add(norm)
+            except Exception:
+                pass
+                
         except Exception:
-            pass
-
-        # Fallback: infer from dist files
-        if dist.files:
-            for f in dist.files:
-                parts = str(f).replace("\\", "/").split("/")
-                if parts:
-                    first = parts[0]
-                    if first.endswith(".py"):
-                        name = first[:-3]
-                    else:
-                        name = first
-                    if name and not name.startswith("_"):
-                        seen.add(name)
-
-        # Also add normalized distribution name
-        dist_name = dist.metadata.get("Name", "")
-        if dist_name:
-            norm = dist_name.replace("-", "_").lower()
-            seen.add(norm)
+            # If processing this distribution fails entirely, skip it
+            continue
 
     return sorted(seen)
 
@@ -151,6 +219,33 @@ def doSanityCheck(mode: str) -> Union[bool, str]:
             return False  # type: ignore[return-value]
         return str(passed)
 
+    raise ValueError(f"Unknown mode: {mode!r}. Use pycheck.OS or pycheck.ALL.")
+
+
+def get_failed_imports(mode: str) -> list[str]:
+    """Return a list of module or package names that failed to import.
+
+    This function is intended to be used for diagnostics only. It performs the same
+    discovery as doSanityCheck but returns the names that failed to import so the
+    CLI can report which specific modules caused failure.
+
+    Returns:
+        A list of module names that failed to import. Always returns a list,
+        never None (defensive programming).
+    """
+    failed: list[str] = []  # Always initialized to empty list, never None
+    if mode == OS:
+        modules = _get_stdlib_modules()
+        for m in modules:
+            if not _try_import(m):
+                failed.append(m)
+        return failed
+    if mode == ALL:
+        packages = _get_all_installed_packages()
+        for p in packages:
+            if not _try_import(p):
+                failed.append(p)
+        return failed
     raise ValueError(f"Unknown mode: {mode!r}. Use pycheck.OS or pycheck.ALL.")
 
 

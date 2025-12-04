@@ -5,14 +5,23 @@ import argparse
 import json
 import platform
 import sys
+import warnings
 from typing import List, Dict, Any
 
 from . import __version__
-from .checker import doSanityCheck, OS, ALL, check_filesystem_access, check_ssl_support
+from .checker import doSanityCheck, OS, ALL, check_filesystem_access, check_ssl_support, get_failed_imports
 from .utils import sanitize_value
 
 
+# Suppress deprecation warnings from Python internals (e.g., sre_compile in 3.13)
+# These warnings leak file paths containing usernames to stderr, which is a privacy concern.
+# Users don't need to see warnings about Python's internal modules.
+warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"importlib.*")
+warnings.filterwarnings("ignore", message=r"module 'sre_.*' is deprecated")
+
+
 def _print_result(label: str, result: object) -> None:
+    """internal function for printing human-readable results."""
     if result:
         if isinstance(result, str):
             print(f"{label}: {result} libraries passed")
@@ -23,6 +32,7 @@ def _print_result(label: str, result: object) -> None:
 
 
 def _print_capability(result: Dict[str, Any]) -> None:
+    """Print human-readable capability check result."""
     label = result.get("capability", "capability")
     status = result.get("status", "unknown")
     detail = result.get("detail", "")
@@ -71,6 +81,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Emit a JSON report instead of human-readable text.",
     )
     parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Emit detailed diagnostic info when a check fails (e.g., which modules failed import).",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        metavar="N",
+        help="Max number of failed imports to show in human-readable output (default: 20).",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
@@ -89,7 +111,23 @@ def main(argv: list[str] | None = None) -> int:
     exit_code = 0
     entries: List[Dict[str, Any]] = []
     for mode in modes:
-        result = doSanityCheck(mode)
+        try:
+            result = doSanityCheck(mode)
+        except (KeyboardInterrupt, SystemExit):
+            # Never swallow Ctrl+C or sys.exit() — let them propagate
+            raise
+        except Exception as exc:  # Defensive: don't let one broken check crash the CLI
+            result = False
+            # On error, report a detail so tooling can present a clear message
+            entries.append({
+                "name": "error",
+                "type": "check",
+                "status": "fail",
+                "detail": sanitize_value(str(exc)),
+            })
+            exit_code = 1
+            # continue to the next mode
+            continue
         label = "OS" if mode == OS else "ALL"
         if not args.json:
             _print_result(label, result)
@@ -102,6 +140,26 @@ def main(argv: list[str] | None = None) -> int:
             entry["detail"] = {
                 "libraries_passed": result,
             }
+        elif result is False and (args.debug or mode == OS):
+            # Gather failed import names for diagnostic output
+            try:
+                failed = get_failed_imports(mode)
+            except Exception:
+                failed = []
+            if failed:
+                entry.setdefault("detail", {})
+                entry["detail"]["failed_imports"] = sanitize_value(failed)
+                # If not JSON, print a human-readable summary too
+                if not args.json:
+                    # Limit output to --limit entries (prevent flooding the terminal)
+                    cap = args.limit
+                    shown = failed[:cap]
+                    overflow = len(failed) - cap
+                    print(f"Failed imports ({len(failed)} total):")
+                    for name in shown:
+                        print(f"  - {name}")
+                    if overflow > 0:
+                        print(f"  ... and {overflow} more (use --limit to see more)")
         entries.append(entry)
         if not result:
             exit_code = 1

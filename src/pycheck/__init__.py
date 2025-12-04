@@ -14,7 +14,7 @@ Usage:
         print(result + " Libraries are fine!")
 """
 
-from .checker import doSanityCheck, OS, ALL, SPECIFIC, check_filesystem_access, check_ssl_support
+from .checker import doSanityCheck, OS, ALL, SPECIFIC, check_filesystem_access, check_ssl_support, get_failed_imports
 
 __all__ = [
     "doSanityCheck",
@@ -23,8 +23,9 @@ __all__ = [
     "SPECIFIC",
     "check_filesystem_access",
     "check_ssl_support",
+    "get_failed_imports",
 ]
 
 __author__ = "Aubrey"
 __license__ = "MIT"
-__version__ = "0.1.2"
+__version__ = "0.1.4"
