@@ -54,7 +54,7 @@ You can use the following arguments with every pycheck_tool.py command in the co
 --limit [Number]  Max numbers of failed modules to show (default is 20)
 --version         Shows your installed version
 ```
-In the future it will also be checked if you have the latest version (only in the standalone script)
+A little deeper you can also see a bigger cheat sheet.
 
 ### Option B – hack on it
 
@@ -73,10 +73,10 @@ pytest
 | --- | --- |
 | Fast confidence in stdlib modules | `pycheck --os` |
 | Exhaustive audit of installed packages | `pycheck --all` |
-| Shareable JSON (sanitized) | `pycheck --json > report.json` |
+| Shareable JSON (sanitized JSON will be saved) | `pycheck --json > report.json` |
 | Human + JSON in one go | `pycheck --os --json` |
 | Debug failing imports | `pycheck --os --debug` |
-| Limit output spam | `pycheck --all --limit 10` |
+| Limit output spam (only 10 modules show) | `pycheck --all --limit 10` |
 | Backwards-compatible names | `pycheck-tool` or `do_check` |
 
 ## JSON reports & the Dutcho filter
@@ -87,33 +87,31 @@ pytest
 - Usernames are replaced with `<user>`.
 - Capability entries (filesystem, SSL) share the exact status you can copy/paste online.
 
+Thank you very much Dutcho for suggesting the filter!
+
 ```powershell
 pycheck --json > reports\health.json
 # Safe to share: no absolute paths or usernames leaked
 ```
 
 ## Python API
+You can also make your own python scripts using the PiPY module!
+The following is a simple and small check that checks your standard libraries, and then all of your libraries.
 
 ```python
 import pycheck
 
 # Quick stdlib check
-if pycheck.doSanityCheck(pycheck.OS):
+passed, failures = pycheck.doSanityCheck(pycheck.OS)
+if passed:
     print("OS Library is good")
+else:
+    print(f"Issues found: {failures}")
 
 # Full package audit
-result = pycheck.doSanityCheck(pycheck.ALL)
-if result:
-    print(f"{result} libraries are fine!")
-
-# Get list of failed imports for diagnostics
-failed = pycheck.get_failed_imports(pycheck.OS)
-if failed:
-    print(f"Failed to import: {failed}")
-
-# Check specific capabilities
-ssl_result = pycheck.check_ssl_support()
-fs_result = pycheck.check_filesystem_access()
+passed, failures = pycheck.doSanityCheck(pycheck.ALL)
+if passed:
+    print("All libraries are fine!")
 ```
 
 Use the API when you want to embed health checks into your own tooling or CI scripts.
