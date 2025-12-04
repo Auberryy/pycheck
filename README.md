@@ -15,7 +15,6 @@
 | **Python support** | 3.9 – 3.13 |
 | **License** | MIT |
 | **Maintainer** | Aubrey |
-| **Status** | Battle-tested and production-ready |
 
 ## Features
 
@@ -43,8 +42,19 @@ pycheck-tool
 You can also get it via `curl`, by typing:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Auberryy/pycheck/main/pycheck_tool.py | python3 -
+curl -fsSL https://raw.githubusercontent.com/Auberryy/pycheck/main/pycheck_tool.py | python3 - 
 ```
+
+You can use the following arguments with every pycheck_tool.py command in the console:
+```bash
+-h (or) --help    Shows you the help message, and exists.
+--os              Checks core stdlib modules only (stdlib is short for Standard Libraries, so the libraries that come with python)
+--all             Checks every single library you have installed on that python version (can be slow)
+--json            Changes your output into a JSON report, which you can then use for error reports
+--limit [Number]  Max numbers of failed modules to show (default is 20)
+--version         Shows your installed version
+```
+In the future it will also be checked if you have the latest version (only in the standalone script)
 
 ### Option B – hack on it
 
