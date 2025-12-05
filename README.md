@@ -5,7 +5,8 @@
 [![Python Versions](https://img.shields.io/pypi/pyversions/pycheck-tool.svg)](https://pypi.org/project/pycheck-tool/)
 [![Downloads](https://static.pepy.tech/badge/pycheck-tool)](https://pepy.tech/project/pycheck-tool)
 
-> **pycheck-tool** is the safe, zero-dependency way to answer "Is this Python install healthy?" — whether you're a beginner sharing logs or a maintainer shipping CI.
+> **pycheck-tool** is the safe, zero-dependency way to answer "Is this Python install healthy?" — whether you're a beginner sharing logs or a maintainer shipping CI. If you personally believe that it should have something it doesn't have, then feel free to put it in a pull request!
+> If you want to make your own pycheck, then feel free to fork this repository!
 
 ## At a Glance
 
