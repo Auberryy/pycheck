@@ -156,4 +156,10 @@ examples/         # Tiny runnable snippets
 pycheck_tool.py   # Standalone single-file version
 ```
 
+## 🤝 Contributing
+
+Found a bug? Have a fix? We welcome your help!
+
+* **Found a bug?** [Open a Bug Report](https://github.com/Auberryy/pycheck/issues/new?template=bug_report.md).
+* **Have a fix?** Fork the repo, make your changes, and submit a Pull Request.
 
